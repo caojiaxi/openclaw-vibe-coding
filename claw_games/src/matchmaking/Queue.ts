@@ -28,21 +28,54 @@ export function hasPriorityBoost(enqueuedAt: number, now: number): boolean {
 
 export class Queue {
   private entries: QueueEntry[] = [];
+  /** Version counter incremented on every mutation, used to detect concurrent modifications. */
+  private _version: number = 0;
+
+  /** Current version — callers can snapshot this before reads and compare after to detect races. */
+  get version(): number {
+    return this._version;
+  }
 
   enqueue(entry: QueueEntry): void {
     // Remove existing entry for same agent (can only be in one queue)
     this.entries = this.entries.filter(e => e.agent_id !== entry.agent_id);
-    this.entries.push(entry);
+    this.entries.push({ ...entry }); // Store a copy
+    this._version++;
   }
 
-  dequeue(agentId: string): void {
+  /**
+   * Remove a single agent from the queue.
+   * (Renamed from `dequeue` for clarity.)
+   */
+  removeAgent(agentId: string): void {
     this.entries = this.entries.filter(e => e.agent_id !== agentId);
+    this._version++;
   }
 
+  /**
+   * Atomically remove multiple agents from the queue in a single pass.
+   * Returns the number of agents actually removed.
+   */
+  removeMany(agentIds: string[]): number {
+    const idSet = new Set(agentIds);
+    const before = this.entries.length;
+    this.entries = this.entries.filter(e => !idSet.has(e.agent_id));
+    const removed = before - this.entries.length;
+    if (removed > 0) {
+      this._version++;
+    }
+    return removed;
+  }
+
+  /**
+   * Return a defensive copy of entries for the given game type,
+   * sorted oldest-first. Callers receive copies, not references.
+   */
   getEntries(gameType: string): QueueEntry[] {
     return this.entries
       .filter(e => e.game_type === gameType)
-      .sort((a, b) => a.enqueued_at - b.enqueued_at);
+      .sort((a, b) => a.enqueued_at - b.enqueued_at)
+      .map(e => ({ ...e })); // Return copies, not references
   }
 
   size(gameType: string): number {

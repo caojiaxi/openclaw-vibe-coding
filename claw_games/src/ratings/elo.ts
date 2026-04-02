@@ -17,9 +17,9 @@ export function expectedScore(ratingA: number, ratingB: number): number {
  * - Rating > 2400: K capped at 10
  */
 export function kFactor(matchesPlayed: number, rating: number): number {
-  if (rating > 2400) return 10;
   if (matchesPlayed <= 30) return 40;
   if (matchesPlayed <= 100) return 24;
+  if (rating > 2400) return 10;
   return 16;
 }
 
