@@ -144,7 +144,7 @@ export function scoreHand(
 
 /** Kong payment amounts */
 export const KONG_PAYMENTS = {
-  exposed: 2,   // 明杠: discarder pays 2
+  exposed: 1,   // 明杠: discarder pays 1 (DESIGN.md §7.7)
   concealed: 2, // 暗杠: each of 3 others pays 2
   added: 1,     // 加杠: each of 3 others pays 1
 } as const;

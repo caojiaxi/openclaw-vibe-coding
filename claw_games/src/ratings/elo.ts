@@ -17,9 +17,10 @@ export function expectedScore(ratingA: number, ratingB: number): number {
  * - Rating > 2400: K capped at 10
  */
 export function kFactor(matchesPlayed: number, rating: number): number {
+  // Rating > 2400 caps K at 10 REGARDLESS of match count (DESIGN.md §8.2)
+  if (rating > 2400) return 10;
   if (matchesPlayed <= 30) return 40;
   if (matchesPlayed <= 100) return 24;
-  if (rating > 2400) return 10;
   return 16;
 }
 
@@ -55,6 +56,11 @@ export function updateRatingsMultiplayer(
   }>,
 ): number[] {
   const N = players.length;
+
+  // Guard: need at least 2 players for pairwise comparison (avoids division by zero on N-1)
+  if (N < 2) {
+    return players.map(p => p.rating);
+  }
 
   return players.map((player, i) => {
     const K = kFactor(player.matchesPlayed, player.rating);
