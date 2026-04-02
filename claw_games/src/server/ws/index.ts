@@ -5,7 +5,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
 import { Server as HTTPServer } from 'http';
 import { verifyToken } from '../routes/index.js';
-import { AgentDAO } from '../db/index.js';
+import { AgentDAO, MatchParticipantDAO } from '../db/index.js';
+import { clearAgentInMatch } from '../routes/matchmaking.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,13 @@ function stopHeartbeat(): void {
 
 // ─── Disconnect / Reconnect Handling ────────────────────────────────────────
 
+/** Generic disconnect callback — invoked whenever any agent disconnects (before forfeit logic). */
+let onDisconnect: ((agentId: string) => void) | null = null;
+
+export function setDisconnectHandler(handler: (agentId: string) => void): void {
+  onDisconnect = handler;
+}
+
 /** Forfeit callback — set externally by the game engine to handle forfeit logic */
 let onForfeit: ((agentId: string, matchId: string) => void) | null = null;
 
@@ -158,6 +166,15 @@ export function setReconnectHandler(handler: (agentId: string, matchId: string) 
 function handleDisconnect(agentId: string, conn: AgentConnection): void {
   connections.delete(agentId);
 
+  // Notify generic disconnect listeners (e.g. matchmaking queue cleanup)
+  if (onDisconnect) {
+    try {
+      onDisconnect(agentId);
+    } catch (err) {
+      console.error(`[WS] Error in onDisconnect handler for agent ${agentId}:`, err);
+    }
+  }
+
   if (conn.matchId) {
     // Allow reconnection within grace period
     disconnectedAgents.set(agentId, {
@@ -174,6 +191,8 @@ function handleDisconnect(agentId: string, conn: AgentConnection): void {
         if (onForfeit) {
           onForfeit(agentId, disconnected.matchId);
         }
+        // Clear the in-match flag so the agent can re-queue (Issue #2)
+        clearAgentInMatch(agentId);
       }
       disconnectedAgents.delete(agentId);
       reconnectionTimers.delete(agentId);
@@ -184,8 +203,19 @@ function handleDisconnect(agentId: string, conn: AgentConnection): void {
 }
 
 function handleReconnection(agentId: string, ws: WebSocket, agentName: string): boolean {
-  const disconnected = disconnectedAgents.get(agentId);
-  if (!disconnected) return false;
+  let disconnected = disconnectedAgents.get(agentId);
+
+  // Fallback: if the in-memory disconnectedAgents map doesn't have this agent
+  // (e.g. the WS was already gone when match was created), check DB for an
+  // active match.  This ensures reconnect can restore the match association
+  // even without the in-memory entry (DESIGN §5.4).
+  if (!disconnected) {
+    const activeMatchId = MatchParticipantDAO.getActiveMatchId(agentId);
+    if (!activeMatchId) return false;
+
+    // Synthesize a disconnected entry so the rest of the flow works
+    disconnected = { agentId, matchId: activeMatchId, disconnectedAt: Date.now() };
+  }
 
   // Close any lingering old socket for this agent
   const existingConn = connections.get(agentId);

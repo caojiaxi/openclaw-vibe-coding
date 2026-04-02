@@ -5,7 +5,12 @@ import express from 'express';
 import { createServer } from 'http';
 import { initializeDatabase } from './db/index.js';
 import { router as apiRoutes } from './routes/index.js';
-import { createWebSocketServer } from './ws/index.js';
+import { matchmakingRouter, setQueue } from './routes/matchmaking.js';
+import { createWebSocketServer, setDisconnectHandler } from './ws/index.js';
+import { Queue } from '../matchmaking/Queue.js';
+import { Matcher } from '../matchmaking/Matcher.js';
+import { startMatchmakingLoop, getDisconnectListener } from '../matchmaking/loop.js';
+import type { MatchmakingLoopHandle } from '../matchmaking/loop.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const DB_PATH = process.env.DB_PATH ?? 'claw_games.db';
@@ -24,6 +29,7 @@ app.use(express.json());
 
 // Mount REST routes at /api/v1
 app.use('/api/v1', apiRoutes);
+app.use('/api/v1', matchmakingRouter);
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -39,6 +45,27 @@ const httpServer = createServer(app);
 const wss = createWebSocketServer(httpServer);
 console.log(`[WS] WebSocket server attached at /ws`);
 
+// ─── Matchmaking System ─────────────────────────────────────────────────────
+
+const queue = new Queue();
+const matcher = new Matcher();
+
+// Inject the queue into the REST routes so they share the same instance
+setQueue(queue);
+
+// Start the matchmaking loop (runs every 5 seconds)
+const matchmakingLoop: MatchmakingLoopHandle = startMatchmakingLoop(queue, matcher);
+
+// Wire WebSocket disconnect → matchmaking queue removal.
+// When an agent disconnects and is not in a match, they should be removed
+// from the matchmaking queue automatically (DESIGN.md §9.6).
+setDisconnectHandler((agentId: string) => {
+  const listener = getDisconnectListener();
+  if (listener) {
+    listener(agentId);
+  }
+});
+
 // ─── Start Listening ────────────────────────────────────────────────────────
 
 httpServer.listen(PORT, () => {
@@ -51,6 +78,10 @@ httpServer.listen(PORT, () => {
 
 function shutdown(): void {
   console.log('\n[Server] Shutting down...');
+
+  // Stop the matchmaking loop first so no new matches are created
+  matchmakingLoop.stop();
+
   wss.close(() => {
     console.log('[WS] WebSocket server closed');
   });
@@ -65,4 +96,4 @@ function shutdown(): void {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-export { app, httpServer, wss };
+export { app, httpServer, wss, queue, matchmakingLoop };

@@ -391,6 +391,22 @@ export const MatchParticipantDAO = {
     return stmt.all(agentId, limit, offset) as MatchParticipant[];
   },
 
+  /**
+   * Look up the agent's active (in_progress) match from DB.
+   * Used during reconnection to restore match association even if the
+   * in-memory disconnectedAgents map was lost (DESIGN §5.4).
+   */
+  getActiveMatchId(agentId: string): string | null {
+    const stmt = getDatabase().prepare(
+      `SELECT mp.match_id FROM match_participants mp
+       JOIN matches m ON mp.match_id = m.id
+       WHERE mp.agent_id = ? AND m.status = 'in_progress'
+       LIMIT 1`
+    );
+    const row = stmt.get(agentId) as { match_id: string } | undefined;
+    return row?.match_id ?? null;
+  },
+
   update(
     matchId: string,
     agentId: string,
