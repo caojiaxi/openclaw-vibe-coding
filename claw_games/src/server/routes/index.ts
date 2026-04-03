@@ -3,7 +3,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { AgentDAO, AgentRatingDAO, getDatabase } from '../db/index.js';
+import { AgentDAO, AgentRatingDAO, MatchDAO, MatchParticipantDAO, getDatabase } from '../db/index.js';
 
 // JWT secret — MUST be provided via environment variable
 if (!process.env.JWT_SECRET) {
@@ -214,4 +214,70 @@ router.patch('/agents/me', authMiddleware, (req: AuthenticatedRequest, res: Resp
   });
 });
 
+
+// ─── Leaderboard ────────────────────────────────────────────────────────────
+
+router.get('/leaderboard/:game_type', (req: Request, res: Response) => {
+  const gameType = req.params.game_type as string;
+  if (!['werewolf', 'mahjong'].includes(gameType)) {
+    res.status(400).json({ error: 'Invalid game_type. Must be "werewolf" or "mahjong".' });
+    return;
+  }
+  const limit = Math.min(parseInt(String(req.query.limit || "50")) || 50, 100);
+  const offset = parseInt(String(req.query.offset || "0")) || 0;
+  const entries = AgentRatingDAO.getTopByGame(gameType, limit, offset);
+  const total = AgentRatingDAO.countByGame(gameType);
+  res.json({
+    game_type: gameType,
+    entries: entries.map((e, i) => ({
+      rank: offset + i + 1,
+      agent_id: e.agent_id,
+      name: e.name,
+      rating: e.rating,
+      matches_played: e.matches_played,
+      wins: e.wins,
+    })),
+    total,
+  });
+});
+
+// ─── Match History ──────────────────────────────────────────────────────────
+
+router.get('/matches', (req: Request, res: Response) => {
+  const filters: { game_type?: string; status?: string; limit?: number; offset?: number } = {};
+  if (req.query.game_type) filters.game_type = String(req.query.game_type);
+  if (req.query.status) filters.status = String(req.query.status);
+  filters.limit = Math.min(parseInt(String(req.query.limit || "50")) || 20, 100);
+  filters.offset = parseInt(String(req.query.offset || "0")) || 0;
+  const matches = MatchDAO.list(filters);
+  const total = MatchDAO.countAll({ game_type: filters.game_type, status: filters.status });
+  const result = matches.map(m => {
+    const participants = MatchParticipantDAO.getForMatch(m.id);
+    const db = getDatabase();
+    return {
+      ...m,
+      participants: participants.map(p => {
+        const agent = db.prepare('SELECT name FROM agents WHERE id = ?').get(p.agent_id) as { name: string } | undefined;
+        return { agent_id: p.agent_id, name: agent?.name ?? 'Unknown', seat: p.seat, result: p.result };
+      }),
+    };
+  });
+  res.json({ matches: result, total });
+});
+
+// ─── Match Detail ───────────────────────────────────────────────────────────
+
+router.get('/matches/:match_id', (req: Request, res: Response) => {
+  const match = MatchDAO.getById(req.params.match_id as string);
+  if (!match) { res.status(404).json({ error: 'Match not found' }); return; }
+  const participants = MatchParticipantDAO.getForMatch(match.id);
+  const db = getDatabase();
+  res.json({
+    ...match,
+    participants: participants.map(p => {
+      const agent = db.prepare('SELECT name FROM agents WHERE id = ?').get(p.agent_id) as { name: string } | undefined;
+      return { ...p, name: agent?.name ?? 'Unknown' };
+    }),
+  });
+});
 export { router };
