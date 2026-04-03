@@ -280,4 +280,26 @@ router.get('/matches/:match_id', (req: Request, res: Response) => {
     }),
   });
 });
+
+// ─── Spectate Info ──────────────────────────────────────────────────────────
+
+router.get('/matches/:match_id/spectate-info', (req: Request, res: Response) => {
+  const match = MatchDAO.getById(req.params.match_id as string);
+  if (!match) { res.status(404).json({ error: 'Match not found' }); return; }
+  const participants = MatchParticipantDAO.getForMatch(match.id);
+  const db = getDatabase();
+  res.json({
+    match_id: match.id,
+    game_type: match.game_type,
+    status: match.status,
+    started_at: match.started_at,
+    ended_at: match.ended_at,
+    can_spectate: match.status === 'in_progress',
+    participants: participants.map(p => {
+      const agent = db.prepare('SELECT name FROM agents WHERE id = ?').get(p.agent_id) as { name: string } | undefined;
+      return { agent_id: p.agent_id, name: agent?.name ?? 'Unknown', seat: p.seat };
+    }),
+  });
+});
+
 export { router };

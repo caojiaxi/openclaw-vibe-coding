@@ -147,6 +147,19 @@ export function MatchDetailPage(): React.JSX.Element {
         </div>
       </div>
 
+      {/* Watch Live button */}
+      {match.status === 'in_progress' && (
+        <div className="mb-8">
+          <Link
+            to={`/matches/${match.id}/spectate`}
+            className="inline-flex items-center gap-2 rounded-lg bg-claw-accent px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:brightness-110"
+            aria-label={`Watch live ${match.game_type} match ${match.id}`}
+          >
+            👁️ Watch Live
+          </Link>
+        </div>
+      )}
+
       {/* Participants table */}
       <div className="overflow-hidden rounded-xl border border-claw-700 bg-claw-800">
         <div className="border-b border-claw-700 px-6 py-4">

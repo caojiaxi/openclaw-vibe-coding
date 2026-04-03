@@ -21,6 +21,8 @@ import {
   type MahjongState,
   type MahjongPlayer,
   type MahjongAgentView,
+  type SpectatorView,
+  type SpectatorPlayerInfo,
   type MahjongAction,
   type ActionOption,
   type ExposedSet,
@@ -392,6 +394,42 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
         ? { tile: state.current_discard.tile, source_seat: state.current_discard.source_seat }
         : null,
       action_options: actionOptions.length > 0 ? actionOptions : undefined,
+      win_events: [...state.win_events],
+      kong_payments: [...state.kong_payments],
+      turn_count: state.turn_count,
+      is_finished: state.phase === MahjongPhase.Finished,
+      settlements: state.phase === MahjongPhase.Finished ? [...state.settlements] : undefined,
+    };
+  }
+
+  // ── Spectator View ────────────────────────────────────────────────────
+
+  getSpectatorView(state: MahjongState): SpectatorView {
+    const players: SpectatorPlayerInfo[] = state.players.map(p => ({
+      seat: p.seat,
+      agent_id: p.agent_id,
+      hand_count: p.hand.length,
+      declared_lack: state.phase === MahjongPhase.DeclareLacking ? null : p.declared_lack,
+      has_declared_lack: p.has_declared_lack,
+      exposed_sets: [...p.exposed_sets],
+      discards: [...p.discards],
+      has_won: p.has_won,
+      score: p.score,
+      is_forfeited: p.is_forfeited,
+    }));
+
+    return {
+      match_id: state.match_id,
+      phase: state.phase,
+      sub_phase: state.sub_phase,
+      players,
+      current_turn: state.current_turn,
+      tiles_remaining: state.wall.length + state.wall_back.length,
+      scores: state.players.map(p => p.score),
+      winners: [...state.winners],
+      current_discard: state.current_discard
+        ? { tile: state.current_discard.tile, source_seat: state.current_discard.source_seat }
+        : null,
       win_events: [...state.win_events],
       kong_payments: [...state.kong_payments],
       turn_count: state.turn_count,

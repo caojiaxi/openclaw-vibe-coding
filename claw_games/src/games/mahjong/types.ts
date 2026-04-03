@@ -244,6 +244,38 @@ export interface MahjongAgentView {
   settlements?: Settlement[];
 }
 
+// ─── Spectator View ──────────────────────────────────────────────────────────
+
+export interface SpectatorPlayerInfo {
+  seat: number;
+  agent_id: string;
+  hand_count: number;          // Number of concealed tiles (hand hidden)
+  declared_lack: Suit | null;
+  has_declared_lack: boolean;
+  exposed_sets: ExposedSet[];
+  discards: Tile[];
+  has_won: boolean;
+  score: number;
+  is_forfeited: boolean;
+}
+
+export interface SpectatorView {
+  match_id: string;
+  phase: MahjongPhase;
+  sub_phase: PlaySubPhase | null;
+  players: SpectatorPlayerInfo[];
+  current_turn: number;
+  tiles_remaining: number;
+  scores: number[];
+  winners: number[];
+  current_discard: { tile: Tile; source_seat: number } | null;
+  win_events: WinEvent[];
+  kong_payments: KongPayment[];
+  turn_count: number;
+  is_finished: boolean;
+  settlements?: Settlement[];
+}
+
 // ─── Action Types ────────────────────────────────────────────────────────────
 
 export interface ActionOption {

@@ -44,6 +44,20 @@ const RECONNECTION_GRACE_PERIOD_MS = 60_000; // 60s to reconnect
 /** Active WebSocket connections indexed by agentId */
 const connections = new Map<string, AgentConnection>();
 
+/** Spectator WebSocket connections indexed by matchId */
+const spectatorConnections = new Map<string, Set<WebSocket>>();
+
+/** Provider function that returns the current spectator view for a match */
+let spectatorStateProvider: ((matchId: string) => unknown | null) | null = null;
+
+/**
+ * Set the function used to generate the current spectator view when a new
+ * spectator connects.  Called by the game layer during initialization.
+ */
+export function setSpectatorStateProvider(provider: (matchId: string) => unknown | null): void {
+  spectatorStateProvider = provider;
+}
+
 /** Agents that disconnected mid-match, eligible for reconnection */
 const disconnectedAgents = new Map<string, DisconnectedAgent>();
 
@@ -84,12 +98,33 @@ export function sendToAgent(agentId: string, message: WSMessage): boolean {
  * Send a message to all connected agents in a specific match.
  */
 export function broadcastToMatch(matchId: string, message: WSMessage): void {
+  const data = JSON.stringify(message);
   for (const conn of connections.values()) {
     if (conn.matchId === matchId && conn.ws.readyState === WebSocket.OPEN) {
       try {
-        conn.ws.send(JSON.stringify(message));
+        conn.ws.send(data);
       } catch {
         // Ignore send errors on stale connections
+      }
+    }
+  }
+  // Also forward to spectators
+  broadcastToSpectators(matchId, message);
+}
+
+/**
+ * Send a message to all spectators watching a specific match.
+ */
+export function broadcastToSpectators(matchId: string, message: WSMessage): void {
+  const spectators = spectatorConnections.get(matchId);
+  if (!spectators) return;
+  const data = JSON.stringify(message);
+  for (const ws of spectators) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(data);
+      } catch {
+        // Ignore send errors on stale spectator connections
       }
     }
   }
@@ -433,6 +468,64 @@ export function createWebSocketServer(httpServer: HTTPServer): WebSocketServer {
       clearTimeout(timer);
     }
     reconnectionTimers.clear();
+  });
+
+  // ─── Spectator WebSocket Server ─────────────────────────────────────────
+  const spectatorWss = new WebSocketServer({ server: httpServer, path: '/ws/spectate', maxPayload: 16 * 1024 });
+
+  spectatorWss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const matchId = url.searchParams.get('match_id');
+
+    if (!matchId) {
+      ws.send(JSON.stringify({ type: 'error', payload: { code: 'MISSING_MATCH_ID', message: 'match_id query parameter required' }, timestamp: new Date().toISOString() }));
+      ws.close(4002, 'Missing match_id');
+      return;
+    }
+
+    // Add to spectator registry
+    if (!spectatorConnections.has(matchId)) {
+      spectatorConnections.set(matchId, new Set());
+    }
+    spectatorConnections.get(matchId)!.add(ws);
+    console.log(`[WS/Spectator] New spectator for match ${matchId} (total: ${spectatorConnections.get(matchId)!.size})`);
+
+    // Send initial state if available
+    if (spectatorStateProvider) {
+      const state = spectatorStateProvider(matchId);
+      if (state) {
+        ws.send(JSON.stringify({ type: 'spectator_state', match_id: matchId, payload: state, timestamp: new Date().toISOString() }));
+      }
+    }
+
+    // Spectators are read-only — only handle ping
+    ws.on('message', (rawData) => {
+      try {
+        const msg = JSON.parse(rawData.toString());
+        if (msg.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', payload: {}, timestamp: new Date().toISOString() }));
+        }
+      } catch {
+        // Ignore invalid messages from spectators
+      }
+    });
+
+    ws.on('close', () => {
+      const set = spectatorConnections.get(matchId);
+      if (set) {
+        set.delete(ws);
+        if (set.size === 0) spectatorConnections.delete(matchId);
+      }
+      console.log(`[WS/Spectator] Spectator left match ${matchId}`);
+    });
+
+    ws.on('error', (err) => {
+      console.error(`[WS/Spectator] Error for match ${matchId}:`, err.message);
+    });
+  });
+
+  spectatorWss.on('close', () => {
+    spectatorConnections.clear();
   });
 
   return wss;

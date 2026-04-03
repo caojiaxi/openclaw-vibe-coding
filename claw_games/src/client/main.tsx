@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Navbar } from './components';
-import { LeaderboardPage, MatchHistoryPage, MatchDetailPage } from './pages';
+import { LeaderboardPage, MatchHistoryPage, MatchDetailPage, SpectatorPage } from './pages';
 import './index.css';
 
 function App(): React.JSX.Element {
@@ -15,6 +15,7 @@ function App(): React.JSX.Element {
             <Route path="/" element={<LeaderboardPage />} />
             <Route path="/matches" element={<MatchHistoryPage />} />
             <Route path="/matches/:matchId" element={<MatchDetailPage />} />
+            <Route path="/matches/:matchId/spectate" element={<SpectatorPage />} />
           </Routes>
         </main>
         <footer className="border-t border-claw-700 py-6 text-center text-xs text-gray-600">

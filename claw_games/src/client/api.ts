@@ -4,6 +4,7 @@ import type {
   MatchDetail,
   GameType,
   MatchStatus,
+  SpectateInfoResponse,
 } from './types';
 
 const BASE = '/api/v1';
@@ -49,4 +50,10 @@ export function getMatches(filters: MatchFilters = {}): Promise<MatchListRespons
 
 export function getMatchDetail(matchId: string): Promise<MatchDetail> {
   return fetchJSON<MatchDetail>(`${BASE}/matches/${matchId}`);
+}
+
+// --- Spectator ---
+
+export function getSpectateInfo(matchId: string): Promise<SpectateInfoResponse> {
+  return fetchJSON<SpectateInfoResponse>(`${BASE}/matches/${matchId}/spectate-info`);
 }
