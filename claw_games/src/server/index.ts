@@ -2,6 +2,8 @@
 // See DESIGN.md §1, §4, §5 for server architecture
 
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { initializeDatabase } from './db/index.js';
 import { router as apiRoutes } from './routes/index.js';
@@ -35,6 +37,17 @@ app.use('/api/v1', matchmakingRouter);
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Serve frontend static files
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDir = path.resolve(__dirname, '../../dist/client');
+app.use(express.static(clientDir));
+app.get('*', (_req, res, next) => {
+  if (_req.path.startsWith('/api/') || _req.path.startsWith('/ws') || _req.path === '/health') {
+    return next();
+  }
+  res.sendFile(path.join(clientDir, 'index.html'));
 });
 
 // ─── HTTP Server ────────────────────────────────────────────────────────────

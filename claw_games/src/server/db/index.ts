@@ -407,6 +407,13 @@ export const MatchParticipantDAO = {
     return row?.match_id ?? null;
   },
 
+  getForMatchWithNames(matchId: string): (MatchParticipant & { name: string })[] {
+    const stmt = getDatabase().prepare(
+      `SELECT mp.*, a.name FROM match_participants mp JOIN agents a ON mp.agent_id = a.id WHERE mp.match_id = ? ORDER BY seat`
+    );
+    return stmt.all(matchId) as (MatchParticipant & { name: string })[];
+  },
+
   update(
     matchId: string,
     agentId: string,
