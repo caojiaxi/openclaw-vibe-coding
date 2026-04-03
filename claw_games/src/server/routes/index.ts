@@ -3,7 +3,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { AgentDAO, AgentRatingDAO } from '../db/index.js';
+import { AgentDAO, AgentRatingDAO, getDatabase } from '../db/index.js';
 
 // JWT secret — MUST be provided via environment variable
 if (!process.env.JWT_SECRET) {
@@ -86,19 +86,33 @@ router.post('/agents', (req: Request, res: Response) => {
     return;
   }
 
-  // Check uniqueness
+  // Check uniqueness (also handle insert race with try-catch)
   const existing = AgentDAO.getByName(name.trim());
   if (existing) {
     res.status(409).json({ error: `Agent name "${name.trim()}" is already taken` });
     return;
   }
 
-  const agent = AgentDAO.create(name.trim(), secret);
-  const token = signToken(agent.id);
+  let agent;
+  try {
+    // Create agent + initialize ratings in a single transaction
+    agent = getDatabase().transaction(() => {
+      const a = AgentDAO.create(name.trim(), secret);
+      AgentRatingDAO.ensureRating(a.id, 'werewolf');
+      AgentRatingDAO.ensureRating(a.id, 'mahjong');
+      return a;
+    })();
+  } catch (err: unknown) {
+    // Handle unique constraint violation from concurrent requests
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('UNIQUE') || msg.includes('unique')) {
+      res.status(409).json({ error: `Agent name "${name.trim()}" is already taken` });
+      return;
+    }
+    throw err;
+  }
 
-  // Initialize ratings for all game types
-  AgentRatingDAO.ensureRating(agent.id, 'werewolf');
-  AgentRatingDAO.ensureRating(agent.id, 'mahjong');
+  const token = signToken(agent.id);
 
   res.status(201).json({
     id: agent.id,

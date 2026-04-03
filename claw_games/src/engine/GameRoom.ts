@@ -3,6 +3,7 @@
 
 import { GameEngine, Player, MatchResult } from './types.js';
 import {
+  getDatabase,
   MatchDAO,
   MatchParticipantDAO,
   AgentRatingDAO,
@@ -304,31 +305,34 @@ export class GameRoom {
       })),
     );
 
-    // Persist updated ratings and participant records
-    for (let i = 0; i < eloPlayers.length; i++) {
-      const ep = eloPlayers[i];
-      const matchResult = results.results.find(r => r.agent_id === ep.agent_id);
-      const newRating = newRatings[i];
-      const currentRating = AgentRatingDAO.getForAgentAndGame(ep.agent_id, this.gameType)!;
+    // Persist updated ratings and participant records (transactional)
+    const persistRatings = getDatabase().transaction(() => {
+      for (let i = 0; i < eloPlayers.length; i++) {
+        const ep = eloPlayers[i];
+        const matchResult = results.results.find(r => r.agent_id === ep.agent_id);
+        const newRating = newRatings[i];
+        const currentRating = AgentRatingDAO.getForAgentAndGame(ep.agent_id, this.gameType)!;
 
-      // Update agent_ratings
-      const isWin = matchResult?.result === 'win';
-      const isLoss = matchResult?.result === 'lose';
-      AgentRatingDAO.update(ep.agent_id, this.gameType, {
-        rating: newRating,
-        matches_played: currentRating.matches_played + 1,
-        wins: currentRating.wins + (isWin ? 1 : 0),
-        losses: currentRating.losses + (isLoss ? 1 : 0),
-        draws: currentRating.draws + (!isWin && !isLoss ? 1 : 0),
-        peak_rating: Math.max(currentRating.peak_rating, newRating),
-      });
+        // Update agent_ratings
+        const isWin = matchResult?.result === 'win';
+        const isLoss = matchResult?.result === 'lose';
+        AgentRatingDAO.update(ep.agent_id, this.gameType, {
+          rating: newRating,
+          matches_played: currentRating.matches_played + 1,
+          wins: currentRating.wins + (isWin ? 1 : 0),
+          losses: currentRating.losses + (isLoss ? 1 : 0),
+          draws: currentRating.draws + (!isWin && !isLoss ? 1 : 0),
+          peak_rating: Math.max(currentRating.peak_rating, newRating),
+        });
 
-      // Update match_participants
-      MatchParticipantDAO.update(this.matchId, ep.agent_id, {
-        result: matchResult?.result ?? null,
-        rating_after: newRating,
-      });
-    }
+        // Update match_participants
+        MatchParticipantDAO.update(this.matchId, ep.agent_id, {
+          result: matchResult?.result ?? null,
+          rating_after: newRating,
+        });
+      }
+    });
+    persistRatings();
   }
 
   private computeRatingChanges(results: MatchResult): Array<{ agent_id: string; before: number; after: number }> {

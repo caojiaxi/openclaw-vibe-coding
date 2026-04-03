@@ -329,6 +329,7 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
       current_discard: null,
       pending_add_kong: null,
       is_kong_replacement_draw: false,
+      last_drawn_tile: null,
       win_events: [],
       kong_payments: [],
       settlements: [],
@@ -461,8 +462,11 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
           });
         }
 
+        // Block pong/kong if player still holds lacking-suit tiles
+        const canMeld = !hasLackSuitTiles(player);
+
         // Kong (明杠) — player holds 3 of this tile
-        if (countTile(player.hand, tile) === 3) {
+        if (canMeld && countTile(player.hand, tile) === 3) {
           actions.push({
             type: MahjongActionType.Kong,
             data: {
@@ -474,7 +478,7 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
         }
 
         // Pong (碰) — player holds 2 of this tile
-        if (countTile(player.hand, tile) >= 2) {
+        if (canMeld && countTile(player.hand, tile) >= 2) {
           actions.push({
             type: MahjongActionType.Pong,
             data: { type: MahjongActionType.Pong, tile } as MahjongAction,
@@ -539,8 +543,11 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
         });
       }
 
-      // Player must discard — can discard any tile in hand
-      for (const tile of getUniqueHandTiles(player.hand)) {
+      // Player must discard — if still holding lacking-suit tiles, must discard those first
+      const discardPool = hasLackSuitTiles(player)
+        ? player.hand.filter(t => t.suit === player.declared_lack)
+        : player.hand;
+      for (const tile of getUniqueHandTiles(discardPool)) {
         actions.push({
           type: MahjongActionType.Discard,
           data: { type: MahjongActionType.Discard, tile } as MahjongAction,
@@ -659,6 +666,7 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
     const tile = state.wall.shift()!;
     player.hand.push(tile);
     player.hand = sortTiles(player.hand);
+    state.last_drawn_tile = tile;
     player.consecutive_timeouts = 0;
     state.last_action_at = Date.now();
 
@@ -999,7 +1007,7 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
       payer_seats: payers,
       points_per_payer: result.points,
       win_type: 'self_draw',
-      winning_tile: player.hand[player.hand.length - 1], // Last drawn tile
+      winning_tile: state.last_drawn_tile ?? player.hand[player.hand.length - 1],
       fan_breakdown: [
         ...result.appliedPatterns.map(p => ({ pattern: p, fan: PATTERN_FAN[p] })),
         ...result.appliedBonuses.map(b => ({ pattern: b, fan: BONUS_FAN_VALUE[b] })),
@@ -1386,6 +1394,7 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
     const tile = source.pop()!;
     player.hand.push(tile);
     player.hand = sortTiles(player.hand);
+    state.last_drawn_tile = tile;
 
     state.sub_phase = PlaySubPhase.PostDraw;
     state.is_kong_replacement_draw = true;
@@ -1463,7 +1472,10 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
       } else {
         finishOrder++;
         order = finishOrder;
-        result = 'lose';
+        // Wall exhaustion (流局): remaining players are 'draw', not 'lose'
+        // They only 'lose' if all other players have won (blood battle fully resolved)
+        const isWallExhaustion = state.wall.length === 0 && state.wall_back.length === 0;
+        result = isWallExhaustion ? 'draw' : 'lose';
       }
 
       settlements.push({

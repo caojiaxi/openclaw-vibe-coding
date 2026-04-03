@@ -187,6 +187,9 @@ export interface MahjongState {
   /** Whether the last draw was a replacement draw after kong (for 杠上开花) */
   is_kong_replacement_draw: boolean;
 
+  /** The actual tile drawn in the last draw action (for accurate winning_tile tracking) */
+  last_drawn_tile: Tile | null;
+
   /** Win events in order (blood battle mode settlement history) */
   win_events: WinEvent[];
 

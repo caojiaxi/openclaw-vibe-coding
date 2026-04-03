@@ -72,7 +72,11 @@ export function sendToAgent(agentId: string, message: WSMessage): boolean {
   if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
     return false;
   }
-  conn.ws.send(JSON.stringify(message));
+  try {
+    conn.ws.send(JSON.stringify(message));
+  } catch {
+    return false;
+  }
   return true;
 }
 
@@ -82,7 +86,11 @@ export function sendToAgent(agentId: string, message: WSMessage): boolean {
 export function broadcastToMatch(matchId: string, message: WSMessage): void {
   for (const conn of connections.values()) {
     if (conn.matchId === matchId && conn.ws.readyState === WebSocket.OPEN) {
-      conn.ws.send(JSON.stringify(message));
+      try {
+        conn.ws.send(JSON.stringify(message));
+      } catch {
+        // Ignore send errors on stale connections
+      }
     }
   }
 }
@@ -324,7 +332,7 @@ function handleMessage(agentId: string, data: string): void {
 // ─── WebSocket Server Initialization ────────────────────────────────────────
 
 export function createWebSocketServer(httpServer: HTTPServer): WebSocketServer {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws', maxPayload: 64 * 1024 /* 64KB limit */ });
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     // Authenticate via query param token

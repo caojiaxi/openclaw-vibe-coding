@@ -97,6 +97,7 @@ interface WerewolfStateInternal extends WerewolfState {
   _hunter_trigger_source?: 'night' | 'vote' | null; // explicit source of hunter trigger
   _last_vote_result?: { votes: Record<number, number>; eliminated?: number };
   _night_sub_phase?: NightSubPhase | null;
+  _acknowledged_seats?: number[];    // seats that have acknowledged day announce
 }
 
 function hasAliveRole(state: WerewolfState, role: Role): boolean {
@@ -365,6 +366,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
       _hunter_trigger_source: null,
       _last_vote_result: undefined,
       _night_sub_phase: null,
+      _acknowledged_seats: [],
     };
 
     return state;
@@ -429,19 +431,30 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
       view.last_vote_result = s._last_vote_result;
     }
 
+    // Include night sub-phase so agents know whose turn it is
+    if (s.phase === WerewolfPhase.Night) {
+      view.nightSubPhase = getCurrentNightSubPhase(s) ?? null;
+    }
+
     return view;
   }
 
   getAvailableActions(state: WerewolfState, agentId: string): Action[] {
     const s = state as WerewolfStateInternal;
     const player = getPlayerByAgent(s, agentId);
-    if (!player || !player.alive) return [];
+    if (!player) return [];
+    // Dead players have no actions — EXCEPT hunter during HunterShoot phase
+    if (!player.alive && s.phase !== WerewolfPhase.HunterShoot) return [];
 
     switch (s.phase) {
       case WerewolfPhase.Night:
         return this._getNightActions(s, player);
-      case WerewolfPhase.DayAnnounce:
+      case WerewolfPhase.DayAnnounce: {
+        if (!player.alive) return [];
+        const acked = (s._acknowledged_seats ?? []);
+        if (acked.includes(player.seat)) return [];
         return [{ type: 'acknowledge', data: {} }];
+      }
       case WerewolfPhase.DayDiscuss:
         return this._getDiscussActions(s, player);
       case WerewolfPhase.DayVote:
@@ -467,6 +480,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
       ? JSON.parse(JSON.stringify(orig._last_vote_result))
       : undefined;
     s._night_sub_phase = orig._night_sub_phase;
+    s._acknowledged_seats = orig._acknowledged_seats ? [...orig._acknowledged_seats] : [];
 
     const player = getPlayerByAgent(s, agentId);
     if (!player) {
@@ -531,7 +545,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
   }
 
   // DayAnnounce phase is handled via 'acknowledge' actions from players.
-  // See _applyAcknowledge() — first acknowledge triggers phase transition.
+  // See _applyAcknowledge() — transitions only after ALL living players acknowledge.
 
   getTimeoutAction(state: WerewolfState, agentId: string): Action | null {
     const actions = this.getAvailableActions(state, agentId);
@@ -692,9 +706,28 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
     actionType: string,
     data: Record<string, unknown>,
   ): void {
+    // Validate that the action matches the current night sub-phase
+    const currentSubPhase = getCurrentNightSubPhase(state);
+    const actionSubPhaseMap: Record<string, NightSubPhase> = {
+      guard_protect: NightSubPhase.GuardProtect,
+      wolf_kill: NightSubPhase.WerewolfKill,
+      witch_act: NightSubPhase.WitchAct,
+      seer_inspect: NightSubPhase.SeerInspect,
+    };
+    const requiredSubPhase = actionSubPhaseMap[actionType];
+    if (requiredSubPhase === undefined) {
+      throw new Error(`Unknown night action: ${actionType}`);
+    }
+    if (currentSubPhase !== requiredSubPhase) {
+      throw new Error(
+        `Night action '${actionType}' cannot be submitted during sub-phase '${currentSubPhase ?? 'none'}' (expected '${requiredSubPhase}')`,
+      );
+    }
+
     switch (actionType) {
       case 'guard_protect': {
         if (player.role !== Role.Guard) throw new Error('Only guard can protect');
+        if (typeof data.target !== "number") throw new Error("guard_protect: target must be a number");
         const target = data.target as number;
         validateSeatExists(state, target, 'guard_protect');
         validateTargetAlive(state, target, 'guard_protect');
@@ -707,6 +740,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
 
       case 'wolf_kill': {
         if (player.role !== Role.Werewolf) throw new Error('Only werewolves can kill');
+        if (typeof data.target !== "number") throw new Error("wolf_kill: target must be a number");
         const target = data.target as number;
         validateSeatExists(state, target, 'wolf_kill');
         validateTargetAlive(state, target, 'wolf_kill');
@@ -737,6 +771,8 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
 
       case 'witch_act': {
         if (player.role !== Role.Witch) throw new Error('Only witch can use potions');
+        if (typeof data.save !== "boolean") throw new Error("witch_act: save must be a boolean");
+        if (typeof data.poison_target !== "number") throw new Error("witch_act: poison_target must be a number");
         const save = data.save as boolean;
         const poisonTarget = data.poison_target as number;
 
@@ -779,6 +815,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
 
       case 'seer_inspect': {
         if (player.role !== Role.Seer) throw new Error('Only seer can inspect');
+        if (typeof data.target !== "number") throw new Error("seer_inspect: target must be a number");
         const target = data.target as number;
         validateSeatExists(state, target, 'seer_inspect');
         validateTargetAlive(state, target, 'seer_inspect');
@@ -831,17 +868,31 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
 
   private _applyAcknowledge(
     state: WerewolfStateInternal,
-    _player: WerewolfPlayer,
+    player: WerewolfPlayer,
     actionType: string,
   ): void {
     if (actionType !== 'acknowledge') {
       throw new Error(`Unknown acknowledge action: ${actionType}`);
     }
 
-    // Idempotent: only transition if still in DayAnnounce.
-    // GameLoop collects acknowledges from all living players concurrently;
-    // the first applied triggers the transition, subsequent ones are no-ops.
+    // Only process while still in DayAnnounce.
     if (state.phase !== WerewolfPhase.DayAnnounce) return;
+
+    // Track acknowledged players — only transition when ALL living players have acknowledged.
+    if (!state._acknowledged_seats) {
+      state._acknowledged_seats = [];
+    }
+    if (!state._acknowledged_seats.includes(player.seat)) {
+      state._acknowledged_seats.push(player.seat);
+    }
+
+    // Check if all living players have acknowledged
+    const aliveSeats = getAliveSeats(state);
+    const allAcknowledged = aliveSeats.every(seat => state._acknowledged_seats!.includes(seat));
+    if (!allAcknowledged) return;
+
+    // All acknowledged — clear tracker
+    state._acknowledged_seats = [];
 
     // If hunter was triggered during night, enter hunter shoot first.
     if (state._hunter_trigger_seat !== null) {
@@ -911,6 +962,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
         }
 
         const message = data.message as string;
+        if (typeof message !== "string") throw new Error("discuss: message must be a string");
         state.discussion.push({ seat: player.seat, message });
         state.discussion_current_index += 1;
 
@@ -1057,7 +1109,7 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
     if (player.role !== Role.Hunter) return [];
     if (state._hunter_trigger_seat !== player.seat) return [];
 
-    const targets = getAliveSeats(state);
+    const targets = getAliveSeats(state).filter(seat => seat !== player.seat);
     const actions: Action[] = targets.map(seat => ({
       type: 'hunter_shoot',
       data: { target: seat },
@@ -1084,7 +1136,9 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
     }
 
     const target = data.target as number;
+    if (typeof target !== 'number') throw new Error('hunter_shoot: target must be a number');
     if (target >= 0) {
+      if (target === player.seat) throw new Error('Hunter cannot shoot self');
       validateSeatExists(state, target, 'hunter_shoot');
       validateTargetAlive(state, target, 'hunter_shoot');
       const targetPlayer = getPlayerBySeat(state, target);

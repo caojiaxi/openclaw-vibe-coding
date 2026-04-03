@@ -1,2 +1,3 @@
-// Route-level page components
-// TODO: Implement Leaderboard, MatchHistory, MatchReplay pages
+export { LeaderboardPage } from './LeaderboardPage';
+export { MatchHistoryPage } from './MatchHistoryPage';
+export { MatchDetailPage } from './MatchDetailPage';
