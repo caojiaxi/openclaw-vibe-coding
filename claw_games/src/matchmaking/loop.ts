@@ -7,6 +7,10 @@ import { MatchDAO, MatchParticipantDAO, AgentRatingDAO, AgentDAO } from '../serv
 import { sendToAgent, setAgentMatch } from '../server/ws/index.js';
 import type { WSMessage } from '../server/ws/index.js';
 import { clearAgentQueueId, markAgentInMatch, isAgentQueued, isAgentInMatch } from '../server/routes/matchmaking.js';
+import { GameRoom } from '../engine/GameRoom.js';
+import { GameLoop } from '../engine/GameLoop.js';
+import { MahjongEngine } from '../games/mahjong/MahjongEngine.js';
+import type { Player } from '../engine/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -46,10 +50,11 @@ export function getDisconnectListener(): DisconnectListener | null {
  *      b. Create participant records via `MatchParticipantDAO.create()`
  *      c. Send a `match_found` WS event to every matched agent
  *      d. Remove matched agents from the queue
+ *      e. Create a GameRoom and start the GameLoop
  *
  * @returns A handle to stop the loop.
  */
-export function startMatchmakingLoop(queue: Queue, matcher: Matcher): MatchmakingLoopHandle {
+export function startMatchmakingLoop(queue: Queue, matcher: Matcher, gameLoop?: GameLoop): MatchmakingLoopHandle {
   // Register the disconnect listener so WebSocket close removes from queue
   // (only if the agent is actually queued — in-match disconnects are handled
   // separately by the reconnection grace period in ws/index.ts)
@@ -69,7 +74,7 @@ export function startMatchmakingLoop(queue: Queue, matcher: Matcher): Matchmakin
 
   const intervalId = setInterval(() => {
     try {
-      tick(queue, matcher);
+      tick(queue, matcher, gameLoop ?? null);
     } catch (err) {
       console.error('[Matchmaking] Error in matchmaking tick:', err);
     }
@@ -93,7 +98,7 @@ export function startMatchmakingLoop(queue: Queue, matcher: Matcher): Matchmakin
 
 // ─── Single Tick ────────────────────────────────────────────────────────────
 
-function tick(queue: Queue, matcher: Matcher): void {
+function tick(queue: Queue, matcher: Matcher, gameLoop: GameLoop | null): void {
   const now = Date.now();
 
   for (const gameType of SUPPORTED_GAME_TYPES) {
@@ -103,14 +108,14 @@ function tick(queue: Queue, matcher: Matcher): void {
     const matchGroups = matcher.findMatches(entries, gameType, now);
 
     for (const group of matchGroups) {
-      processMatchGroup(queue, group);
+      processMatchGroup(queue, group, gameLoop);
     }
   }
 }
 
 // ─── Match Group Processing ────────────────────────────────────────────────
 
-function processMatchGroup(queue: Queue, group: MatchGroup): void {
+function processMatchGroup(queue: Queue, group: MatchGroup, gameLoop: GameLoop | null): void {
   const { entries, game_type } = group;
   const agentIds = entries.map(e => e.agent_id);
 
@@ -181,5 +186,34 @@ function processMatchGroup(queue: Queue, group: MatchGroup): void {
   for (const id of agentIds) {
     clearAgentQueueId(id);
     markAgentInMatch(id);
+  }
+
+  // 6. Create GameRoom and start GameLoop for supported game types
+  if (gameLoop && game_type === 'mahjong') {
+    const enginePlayers: Player[] = players.map(p => ({
+      id: p.agent_id,
+      seat: p.seat,
+    }));
+
+    const room = new GameRoom({
+      matchId: match.id,
+      gameType: game_type,
+      seed,
+      players: enginePlayers,
+      engine: new MahjongEngine(),
+    });
+
+    // Mark all players as connected (they were just matched from queue,
+    // so they have active WS connections)
+    for (const p of players) {
+      room.playerJoin(p.agent_id);
+    }
+
+    // Start the game loop asynchronously
+    gameLoop.startGame(room).catch(err => {
+      console.error(`[Matchmaking] Failed to start game ${match.id}:`, err);
+    });
+
+    console.log(`[Matchmaking] GameRoom and GameLoop started for match ${match.id}`);
   }
 }

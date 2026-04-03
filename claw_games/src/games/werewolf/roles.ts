@@ -49,10 +49,10 @@ export const PLAYER_CONFIGS: Record<number, RoleConfig[]> = {
   ],
   12: [
     { role: Role.Werewolf, count: 3 },
-    { role: Role.Villager, count: 4 },
+    { role: Role.Villager, count: 5 },
     { role: Role.Seer, count: 1 },
     { role: Role.Witch, count: 1 },
     { role: Role.Hunter, count: 1 },
-    { role: Role.Guard, count: 2 },
+    { role: Role.Guard, count: 1 },
   ],
 };

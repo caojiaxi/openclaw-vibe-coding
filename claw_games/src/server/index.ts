@@ -11,6 +11,7 @@ import { Queue } from '../matchmaking/Queue.js';
 import { Matcher } from '../matchmaking/Matcher.js';
 import { startMatchmakingLoop, getDisconnectListener } from '../matchmaking/loop.js';
 import type { MatchmakingLoopHandle } from '../matchmaking/loop.js';
+import { GameLoop } from '../engine/GameLoop.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const DB_PATH = process.env.DB_PATH ?? 'claw_games.db';
@@ -45,6 +46,13 @@ const httpServer = createServer(app);
 const wss = createWebSocketServer(httpServer);
 console.log(`[WS] WebSocket server attached at /ws`);
 
+// ─── Game Loop ──────────────────────────────────────────────────────────────
+
+// The GameLoop instance wires up WS message/forfeit/reconnect handlers
+// in its constructor, so it must be created after the WS server.
+const gameLoop = new GameLoop();
+console.log(`[GameLoop] Game loop initialized`);
+
 // ─── Matchmaking System ─────────────────────────────────────────────────────
 
 const queue = new Queue();
@@ -54,7 +62,8 @@ const matcher = new Matcher();
 setQueue(queue);
 
 // Start the matchmaking loop (runs every 5 seconds)
-const matchmakingLoop: MatchmakingLoopHandle = startMatchmakingLoop(queue, matcher);
+// Pass the gameLoop so that matched games auto-start
+const matchmakingLoop: MatchmakingLoopHandle = startMatchmakingLoop(queue, matcher, gameLoop);
 
 // Wire WebSocket disconnect → matchmaking queue removal.
 // When an agent disconnects and is not in a match, they should be removed
@@ -96,4 +105,4 @@ function shutdown(): void {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-export { app, httpServer, wss, queue, matchmakingLoop };
+export { app, httpServer, wss, queue, matchmakingLoop, gameLoop };

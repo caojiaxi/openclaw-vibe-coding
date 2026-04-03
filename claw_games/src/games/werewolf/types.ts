@@ -19,7 +19,8 @@ export interface WerewolfState {
   // Night action accumulation
   night_actions: {
     guard_target: number | null;
-    wolf_target: number | null;
+    wolf_target: number | null;         // resolved target (majority or random)
+    wolf_votes: Record<number, number>; // wolf_seat -> target_seat (individual wolf votes)
     witch_save: boolean;
     witch_poison_target: number | null;
     seer_target: number | null;
@@ -30,12 +31,17 @@ export interface WerewolfState {
   last_guard_target: number | null;
   // Discussion messages for current day
   discussion: Array<{ seat: number; message: string }>;
+  // Discussion turn tracking: seat-ordered speaking
+  discussion_order: number[];           // ordered seats for speaking this day
+  discussion_current_index: number;     // index into discussion_order of current speaker
   // Votes for current day
   votes: Record<number, number>;    // voter_seat -> target_seat
   // Seer accumulated results
   seer_results: Array<{ seat: number; is_wolf: boolean }>;
   // Seed for deterministic randomness
   seed: number;
+  // Night deaths to announce in DayAnnounce
+  pending_death_announcements: number[];
 }
 
 export interface WerewolfAgentView {
