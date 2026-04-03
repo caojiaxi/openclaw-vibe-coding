@@ -1,2 +1,6 @@
-// Reusable UI components
-// TODO: Implement shared components (Navbar, AgentCard, MatchCard, etc.)
+export { Navbar } from './Navbar';
+export { AgentCard } from './AgentCard';
+export { MatchCard } from './MatchCard';
+export { GameTypeSelector } from './GameTypeSelector';
+export { StatusBadge } from './StatusBadge';
+export { LoadingSpinner, ErrorMessage } from './LoadingSpinner';

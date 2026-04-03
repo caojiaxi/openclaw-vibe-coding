@@ -3,7 +3,7 @@
 
 import { Queue } from './Queue.js';
 import { Matcher, MatchGroup } from './Matcher.js';
-import { MatchDAO, MatchParticipantDAO, AgentRatingDAO, AgentDAO } from '../server/db/index.js';
+import { MatchDAO, MatchParticipantDAO, AgentRatingDAO, AgentDAO, getDatabase } from '../server/db/index.js';
 import { sendToAgent, setAgentMatch } from '../server/ws/index.js';
 import type { WSMessage } from '../server/ws/index.js';
 import { clearAgentQueueId, markAgentInMatch, isAgentQueued, isAgentInMatch } from '../server/routes/matchmaking.js';
@@ -122,36 +122,48 @@ function processMatchGroup(queue: Queue, group: MatchGroup, gameLoop: GameLoop |
   // 1. Generate a deterministic-replay seed
   const seed = Math.floor(Math.random() * 2_147_483_647);
 
-  // 2. Create the match record
-  const match = MatchDAO.create(game_type, seed);
-  console.log(`[Matchmaking] Match ${match.id} created (${game_type}, ${entries.length} players)`);
-
-  // 3. Build participant list — resolve agent names for the WS payload
+  // 2. Create match + participants inside a single transaction
   interface PlayerInfo {
     agent_id: string;
     name: string;
     seat: number;
     rating_before: number;
   }
-  const players: PlayerInfo[] = [];
 
-  for (let seat = 0; seat < entries.length; seat++) {
-    const entry = entries[seat];
-    const agent = AgentDAO.getById(entry.agent_id);
-    const name = agent?.name ?? 'Unknown';
-    const ratingRow = AgentRatingDAO.getForAgentAndGame(entry.agent_id, game_type);
-    const ratingBefore = ratingRow?.rating ?? 1500;
+  const { match, players } = getDatabase().transaction(() => {
+    const match = MatchDAO.create(game_type, seed);
 
-    MatchParticipantDAO.create({
-      match_id: match.id,
-      agent_id: entry.agent_id,
-      seat,
-      role: null,
-      result: null,
-      rating_before: ratingBefore,
-    });
+    const players: PlayerInfo[] = [];
 
-    players.push({ agent_id: entry.agent_id, name, seat, rating_before: ratingBefore });
+    for (let seat = 0; seat < entries.length; seat++) {
+      const entry = entries[seat];
+      const agent = AgentDAO.getById(entry.agent_id);
+      const name = agent?.name ?? 'Unknown';
+      const ratingRow = AgentRatingDAO.getForAgentAndGame(entry.agent_id, game_type);
+      const ratingBefore = ratingRow?.rating ?? 1500;
+
+      MatchParticipantDAO.create({
+        match_id: match.id,
+        agent_id: entry.agent_id,
+        seat,
+        role: null,
+        result: null,
+        rating_before: ratingBefore,
+      });
+
+      players.push({ agent_id: entry.agent_id, name, seat, rating_before: ratingBefore });
+    }
+
+    return { match, players };
+  })();
+
+  console.log(`[Matchmaking] Match ${match.id} created (${game_type}, ${entries.length} players)`);
+
+  // 3. Remove matched agents from queue, clear queue-id mappings, and mark as in-match
+  queue.removeMany(agentIds);
+  for (const id of agentIds) {
+    clearAgentQueueId(id);
+    markAgentInMatch(id);
   }
 
   // 4. Send match_found WS event to each matched agent
@@ -181,14 +193,7 @@ function processMatchGroup(queue: Queue, group: MatchGroup, gameLoop: GameLoop |
     }
   }
 
-  // 5. Remove matched agents from queue, clear queue-id mappings, and mark as in-match
-  queue.removeMany(agentIds);
-  for (const id of agentIds) {
-    clearAgentQueueId(id);
-    markAgentInMatch(id);
-  }
-
-  // 6. Create GameRoom and start GameLoop for supported game types
+  // 5. Create GameRoom and start GameLoop for supported game types
   if (gameLoop && game_type === 'mahjong') {
     const enginePlayers: Player[] = players.map(p => ({
       id: p.agent_id,

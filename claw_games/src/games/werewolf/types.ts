@@ -42,6 +42,13 @@ export interface WerewolfState {
   seed: number;
   // Night deaths to announce in DayAnnounce
   pending_death_announcements: number[];
+  _witch_acted?: boolean;
+  _pending_deaths?: number[];
+  _hunter_trigger_seat?: number | null;
+  _hunter_trigger_source?: "night" | "vote" | null;
+  _last_vote_result?: { votes: Record<number, number>; eliminated?: number };
+  _night_sub_phase?: string | null;
+  _acknowledged_seats?: number[];
 }
 
 export interface WerewolfAgentView {
@@ -58,4 +65,5 @@ export interface WerewolfAgentView {
   wolf_target?: number;
   discussion: Array<{ seat: number; message: string }>;
   last_vote_result?: { votes: Record<number, number>; eliminated?: number };
+  nightSubPhase?: string | null;
 }

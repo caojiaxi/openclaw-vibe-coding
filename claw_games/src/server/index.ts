@@ -25,8 +25,8 @@ initializeDatabase(DB_PATH);
 
 const app = express();
 
-// JSON body parsing
-app.use(express.json());
+// JSON body parsing with size limit to prevent abuse
+app.use(express.json({ limit: '1mb' }));
 
 // Mount REST routes at /api/v1
 app.use('/api/v1', apiRoutes);
