@@ -409,6 +409,7 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
       seat: p.seat,
       agent_id: p.agent_id,
       hand_count: p.hand.length,
+      hand: [...p.hand],
       declared_lack: state.phase === MahjongPhase.DeclareLacking ? null : p.declared_lack,
       has_declared_lack: p.has_declared_lack,
       exposed_sets: [...p.exposed_sets],
@@ -700,8 +701,8 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
       return this.handleWallExhaustion(state);
     }
 
-    // Draw from the front of the wall
-    const tile = state.wall.shift()!;
+    // Draw from the front of the wall (fall back to wall_back if wall is empty)
+    const tile = state.wall.length > 0 ? state.wall.shift()! : state.wall_back.shift()!;
     player.hand.push(tile);
     player.hand = sortTiles(player.hand);
     state.last_drawn_tile = tile;
@@ -1347,11 +1348,14 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
       // Can hu?
       if (this.canPlayerWin(state, p, tile)) canRespond = true;
 
+      // Pong/Kong blocked if player still holds lacking-suit tiles
+      const canMeld = !hasLackSuitTiles(p);
+
       // Can kong? (3 in hand)
-      if (countTile(p.hand, tile) >= 3) canRespond = true;
+      if (canMeld && countTile(p.hand, tile) >= 3) canRespond = true;
 
       // Can pong? (2 in hand)
-      if (countTile(p.hand, tile) >= 2) canRespond = true;
+      if (canMeld && countTile(p.hand, tile) >= 2) canRespond = true;
 
       if (canRespond) responders.push(p.seat);
     }
@@ -1429,6 +1433,9 @@ export class MahjongEngine implements GameEngine<MahjongState, MahjongAgentView>
 
     // Draw from the back of the wall
     const source = state.wall_back.length > 0 ? state.wall_back : state.wall;
+    if (source.length === 0) {
+      return this.handleWallExhaustion(state);
+    }
     const tile = source.pop()!;
     player.hand.push(tile);
     player.hand = sortTiles(player.hand);

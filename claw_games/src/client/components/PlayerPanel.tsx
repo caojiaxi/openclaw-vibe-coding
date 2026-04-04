@@ -35,16 +35,26 @@ function ExposedSets({ sets }: { sets: SpectatorPlayerInfo['exposed_sets'] }): R
   );
 }
 
-function HandPlaceholders({ count }: { count: number }): React.JSX.Element {
+function HandTiles({ hand, count }: { hand?: MahjongTileType[]; count: number }): React.JSX.Element {
+  // Show real tiles if available, otherwise face-down
+  if (hand && hand.length > 0) {
+    const sorted = [...hand].sort((a, b) => {
+      const suitOrder: Record<string, number> = { characters: 0, bamboo: 1, dots: 2 };
+      const sd = (suitOrder[a.suit] ?? 3) - (suitOrder[b.suit] ?? 3);
+      return sd !== 0 ? sd : a.value - b.value;
+    });
+    return (
+      <div className="flex flex-wrap gap-0.5">
+        {sorted.map((tile, i) => (
+          <MahjongTile key={`hand-${tile.suit}-${tile.value}-${i}`} tile={tile} size="sm" />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex gap-0.5">
       {Array.from({ length: count }).map((_, i) => (
-        <MahjongTile
-          key={`hand-${i}`}
-          tile={{ suit: 'bamboo', value: 1 }}
-          faceDown
-          size="sm"
-        />
+        <MahjongTile key={`hand-${i}`} tile={{ suit: 'bamboo', value: 1 }} faceDown size="sm" />
       ))}
     </div>
   );
@@ -95,9 +105,9 @@ export function PlayerPanel({
         )}
       </div>
 
-      {/* Hand tiles (face-down) */}
-      <div className={`mb-2 ${isVertical ? 'max-w-[100px]' : ''}`}>
-        <HandPlaceholders count={player.hand_count} />
+      {/* Hand tiles */}
+      <div className="mb-2">
+        <HandTiles hand={player.hand} count={player.hand_count} />
       </div>
 
       {/* Exposed sets */}
@@ -109,7 +119,7 @@ export function PlayerPanel({
 
       {/* Discards */}
       {player.discards.length > 0 && (
-        <div className={`${isVertical ? 'max-w-[100px]' : 'max-w-[280px]'}`}>
+        <div className="max-w-[280px]">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">Discards</p>
           <DiscardRiver discards={player.discards} />
         </div>

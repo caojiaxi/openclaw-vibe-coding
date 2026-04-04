@@ -110,6 +110,7 @@ export interface SpectatorPlayerInfo {
   seat: number;
   agent_id: string;
   hand_count: number;
+  hand?: MahjongTile[];
   declared_lack: MahjongSuit | null;
   has_declared_lack: boolean;
   exposed_sets: ExposedSet[];
@@ -155,6 +156,7 @@ export interface SpectateInfoResponse {
 export interface ReplayAction {
   type: string;
   agent_id: string;
+  reason: string | null;
   timestamp: string;
 }
 

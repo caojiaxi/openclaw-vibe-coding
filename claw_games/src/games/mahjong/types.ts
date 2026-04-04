@@ -249,7 +249,8 @@ export interface MahjongAgentView {
 export interface SpectatorPlayerInfo {
   seat: number;
   agent_id: string;
-  hand_count: number;          // Number of concealed tiles (hand hidden)
+  hand_count: number;          // Number of concealed tiles
+  hand: Tile[];                // Full hand (for dev/spectator mode)
   declared_lack: Suit | null;
   has_declared_lack: boolean;
   exposed_sets: ExposedSet[];

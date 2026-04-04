@@ -152,6 +152,11 @@ export function SpectatorPage(): React.JSX.Element {
   const [showEnd, setShowEnd] = useState(false);
   const [matchEnded, setMatchEnded] = useState(false);
 
+  // LLM thinking log
+  interface ThinkingEntry { id: number; agentId: string; action: string; tile: string | null; reason: string; ts: number; }
+  const [thinkingLog, setThinkingLog] = useState<ThinkingEntry[]>([]);
+  const thinkingIdRef = useRef(0);
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
@@ -223,10 +228,22 @@ export function SpectatorPage(): React.JSX.Element {
             }
           }
         } else if (msg.type === 'game_end') {
-          if (msg.payload) setState(msg.payload);
+          if (msg.payload) setState(msg.payload as SpectatorView);
           setShowEnd(true);
           // C1: Game ended, stop reconnecting
           shouldReconnectRef.current = false;
+        } else if (msg.type === 'agent_thinking') {
+          const p = msg.payload as { agent_id?: string; action?: string; tile?: string | null; reason?: string } | undefined;
+          if (p?.agent_id) {
+            setThinkingLog(prev => [{
+              id: thinkingIdRef.current++,
+              agentId: p.agent_id!,
+              action: p.action ?? '?',
+              tile: p.tile ?? null,
+              reason: p.reason ?? '',
+              ts: Date.now(),
+            }, ...prev].slice(0, 50)); // keep last 50
+          }
         }
       } catch {
         // ignore malformed messages
@@ -494,27 +511,35 @@ export function SpectatorPage(): React.JSX.Element {
           </div>
         </div>
 
-        {/* Right sidebar – event log */}
-        <div className="flex w-72 flex-col border-l border-claw-700 bg-claw-800/60">
+        {/* Right sidebar – AI thinking + event log */}
+        <div className="flex w-80 flex-col border-l border-claw-700 bg-claw-800/60">
           <div className="border-b border-claw-700 px-4 py-3">
-            <h2 className="text-sm font-semibold text-gray-200">Event Log</h2>
+            <h2 className="text-sm font-semibold text-gray-200">🤖 AI Thinking</h2>
           </div>
           <div className="flex-1 overflow-y-auto px-3 py-2">
-            {logEntries.length === 0 ? (
-              <p className="py-8 text-center text-xs text-gray-600">No events yet</p>
+            {thinkingLog.length === 0 && logEntries.length === 0 ? (
+              <p className="py-8 text-center text-xs text-gray-600">Waiting for AI decisions...</p>
             ) : (
               <ul className="space-y-2">
+                {thinkingLog.map((t) => {
+                  const seat = state.players.findIndex(p => p.agent_id === t.agentId);
+                  const name = seat >= 0 ? nameOf(seat) : t.agentId.slice(0, 8);
+                  return (
+                    <li key={t.id} className="rounded-lg border-l-2 border-purple-500 bg-purple-500/5 px-3 py-2 text-xs leading-relaxed">
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="font-semibold text-purple-300">{name}</span>
+                        <span className="text-gray-500">→</span>
+                        <span className="font-mono text-claw-gold">{t.action}{t.tile ? ` ${t.tile}` : ''}</span>
+                      </div>
+                      <p className="text-gray-400">{t.reason}</p>
+                    </li>
+                  );
+                })}
                 {logEntries.map((e) => (
-                  <li
-                    key={e.id}
-                    className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
-                      e.type === 'win'
-                        ? 'border-l-2 border-claw-gold bg-claw-gold/5 text-gray-200'
-                        : 'border-l-2 border-blue-500 bg-blue-500/5 text-gray-300'
-                    }`}
-                  >
-                    {e.text}
-                  </li>
+                  <li key={`ev-${e.id}`} className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
+                    e.type === 'win' ? 'border-l-2 border-claw-gold bg-claw-gold/5 text-gray-200'
+                    : 'border-l-2 border-blue-500 bg-blue-500/5 text-gray-300'
+                  }`}>{e.text}</li>
                 ))}
               </ul>
             )}

@@ -348,7 +348,7 @@ router.get('/matches/:match_id/replay', (req: Request, res: Response) => {
   const initialView = engine.getSpectatorView(currentState);
   const frames = [initialView];
 
-  const actions: Array<{ type: string; agent_id: string; timestamp: string }> = [];
+  const actions: Array<{ type: string; agent_id: string; reason: string | null; timestamp: string }> = [];
 
   for (const entry of actionLogEntries) {
     const action = {
@@ -363,6 +363,7 @@ router.get('/matches/:match_id/replay', (req: Request, res: Response) => {
       actions.push({
         type: entry.action_type,
         agent_id: entry.agent_id,
+        reason: entry.reason ?? null,
         timestamp: entry.timestamp,
       });
     } catch {
