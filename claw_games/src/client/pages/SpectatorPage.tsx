@@ -150,6 +150,7 @@ export function SpectatorPage(): React.JSX.Element {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showEnd, setShowEnd] = useState(false);
+  const [matchEnded, setMatchEnded] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -269,6 +270,12 @@ export function SpectatorPage(): React.JSX.Element {
           map.set(p.seat, p.name);
         }
         nameMapRef.current = map;
+
+        // If match already ended, show finished state instead of connecting WS
+        if (data.status !== 'in_progress') {
+          setMatchEnded(true);
+          return;
+        }
         connectWs();
       })
       .catch((err) => {
@@ -335,6 +342,34 @@ export function SpectatorPage(): React.JSX.Element {
             >
               &larr; Back
             </Link>
+          </div>
+        </div>
+      );
+    }
+    // Match already ended — no live data to show
+    if (matchEnded) {
+      return (
+        <div className="flex min-h-[80vh] items-center justify-center">
+          <div className="rounded-xl border border-claw-700 bg-claw-800 p-8 text-center">
+            <p className="mb-2 text-2xl">🀄</p>
+            <p className="mb-2 text-lg font-semibold text-gray-100">Match Ended</p>
+            <p className="mb-4 text-sm text-gray-400">
+              This match has already finished ({info?.status ?? 'ended'}).
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <Link
+                to={matchId ? `/matches/${matchId}/replay` : '/matches'}
+                className="inline-block rounded-lg bg-claw-accent px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+              >
+                🔄 Watch Replay
+              </Link>
+              <Link
+                to={matchId ? `/matches/${matchId}` : '/matches'}
+                className="text-sm text-claw-accent underline"
+              >
+                View Match Details
+              </Link>
+            </div>
           </div>
         </div>
       );

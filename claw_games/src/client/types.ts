@@ -149,3 +149,18 @@ export interface SpectateInfoResponse {
     seat: number;
   }[];
 }
+
+// --- Replay ---
+
+export interface ReplayAction {
+  type: string;
+  agent_id: string;
+  timestamp: string;
+}
+
+export interface ReplayData {
+  match_id: string;
+  frames: SpectatorView[];
+  actions: ReplayAction[];
+  participants: { agent_id: string; name: string; seat: number }[];
+}

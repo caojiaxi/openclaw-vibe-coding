@@ -367,7 +367,7 @@ function handleMessage(agentId: string, data: string): void {
 // ─── WebSocket Server Initialization ────────────────────────────────────────
 
 export function createWebSocketServer(httpServer: HTTPServer): WebSocketServer {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws', maxPayload: 64 * 1024 /* 64KB limit */ });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 /* 64KB limit */, perMessageDeflate: false });
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     // Authenticate via query param token
@@ -471,7 +471,7 @@ export function createWebSocketServer(httpServer: HTTPServer): WebSocketServer {
   });
 
   // ─── Spectator WebSocket Server ─────────────────────────────────────────
-  const spectatorWss = new WebSocketServer({ server: httpServer, path: '/ws/spectate', maxPayload: 16 * 1024 });
+  const spectatorWss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024, perMessageDeflate: false });
 
   spectatorWss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -526,6 +526,23 @@ export function createWebSocketServer(httpServer: HTTPServer): WebSocketServer {
 
   spectatorWss.on('close', () => {
     spectatorConnections.clear();
+  });
+
+  // ─── Manual upgrade routing ─────────────────────────────────────────────
+  httpServer.on('upgrade', (req, socket, head) => {
+    const pathname = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
+
+    if (pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/spectate') {
+      spectatorWss.handleUpgrade(req, socket, head, (ws) => {
+        spectatorWss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
   });
 
   return wss;

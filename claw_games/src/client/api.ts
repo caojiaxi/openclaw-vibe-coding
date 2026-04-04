@@ -5,6 +5,7 @@ import type {
   GameType,
   MatchStatus,
   SpectateInfoResponse,
+  ReplayData,
 } from './types';
 
 const BASE = '/api/v1';
@@ -56,4 +57,10 @@ export function getMatchDetail(matchId: string): Promise<MatchDetail> {
 
 export function getSpectateInfo(matchId: string): Promise<SpectateInfoResponse> {
   return fetchJSON<SpectateInfoResponse>(`${BASE}/matches/${matchId}/spectate-info`);
+}
+
+// --- Replay ---
+
+export function getReplay(matchId: string): Promise<ReplayData> {
+  return fetchJSON<ReplayData>(`${BASE}/matches/${matchId}/replay`);
 }
