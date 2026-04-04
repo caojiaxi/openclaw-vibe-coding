@@ -3,7 +3,10 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { AgentDAO, AgentRatingDAO, MatchDAO, MatchParticipantDAO, getDatabase } from '../db/index.js';
+import { AgentDAO, AgentRatingDAO, MatchDAO, MatchParticipantDAO, ActionLogDAO, GameSnapshotDAO, getDatabase } from '../db/index.js';
+import { MahjongEngine } from '../../games/mahjong/MahjongEngine.js';
+import type { MahjongState } from '../../games/mahjong/types.js';
+import type { Player } from '../../engine/types.js';
 
 // JWT secret — MUST be provided via environment variable
 if (!process.env.JWT_SECRET) {
@@ -280,4 +283,100 @@ router.get('/matches/:match_id', (req: Request, res: Response) => {
     }),
   });
 });
+
+// ─── Spectate Info ──────────────────────────────────────────────────────────
+
+router.get('/matches/:match_id/spectate-info', (req: Request, res: Response) => {
+  const match = MatchDAO.getById(req.params.match_id as string);
+  if (!match) { res.status(404).json({ error: 'Match not found' }); return; }
+  const participants = MatchParticipantDAO.getForMatch(match.id);
+  const db = getDatabase();
+  res.json({
+    match_id: match.id,
+    game_type: match.game_type,
+    status: match.status,
+    started_at: match.started_at,
+    ended_at: match.ended_at,
+    can_spectate: match.status === 'in_progress' || match.status === 'completed' || match.status === 'aborted',
+    participants: participants.map(p => {
+      const agent = db.prepare('SELECT name FROM agents WHERE id = ?').get(p.agent_id) as { name: string } | undefined;
+      return { agent_id: p.agent_id, name: agent?.name ?? 'Unknown', seat: p.seat };
+    }),
+  });
+});
+
+// ─── Replay ────────────────────────────────────────────────────────────────
+
+router.get('/matches/:match_id/replay', (req: Request, res: Response) => {
+  const matchId = req.params.match_id as string;
+
+  // 1. Fetch the match — reject if not found or not mahjong
+  const match = MatchDAO.getById(matchId);
+  if (!match) {
+    res.status(404).json({ error: 'Match not found' });
+    return;
+  }
+  if (match.game_type !== 'mahjong') {
+    res.status(400).json({ error: 'Replay is only available for mahjong matches' });
+    return;
+  }
+
+  // 2. Fetch action_log entries (sorted by id ASC)
+  const actionLogEntries = ActionLogDAO.getForMatch(matchId);
+
+  // 3. Fetch the FIRST game_snapshot (the initial state after dealing)
+  const snapshots = GameSnapshotDAO.getForMatch(matchId);
+  if (snapshots.length === 0) {
+    res.status(404).json({ error: 'No snapshots found for this match' });
+    return;
+  }
+  const initialSnapshot = snapshots[0];
+
+  // 4. Fetch participants for name resolution
+  const participants = MatchParticipantDAO.getForMatch(matchId);
+  const db = getDatabase();
+  const participantInfo = participants.map(p => {
+    const agent = db.prepare('SELECT name FROM agents WHERE id = ?').get(p.agent_id) as { name: string } | undefined;
+    return { agent_id: p.agent_id, name: agent?.name ?? 'Unknown', seat: p.seat };
+  });
+
+  // 5. Replay: start from initial snapshot, apply each action
+  const engine = new MahjongEngine();
+  let currentState: MahjongState = JSON.parse(initialSnapshot.state_json) as MahjongState;
+
+  // Frame 0: initial state (before any actions)
+  const initialView = engine.getSpectatorView(currentState);
+  const frames = [initialView];
+
+  const actions: Array<{ type: string; agent_id: string; timestamp: string }> = [];
+
+  for (const entry of actionLogEntries) {
+    const action = {
+      type: entry.action_type,
+      data: JSON.parse(entry.payload_json),
+    };
+
+    try {
+      currentState = engine.applyAction(currentState, entry.agent_id, action);
+      const view = engine.getSpectatorView(currentState);
+      frames.push(view);
+      actions.push({
+        type: entry.action_type,
+        agent_id: entry.agent_id,
+        timestamp: entry.timestamp,
+      });
+    } catch {
+      // If an action fails to replay, stop here — return partial data
+      break;
+    }
+  }
+
+  res.json({
+    match_id: matchId,
+    frames,
+    actions,
+    participants: participantInfo,
+  });
+});
+
 export { router };

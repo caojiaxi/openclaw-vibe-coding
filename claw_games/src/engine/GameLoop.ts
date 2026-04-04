@@ -6,10 +6,11 @@
 import { GameRoom, getRoom } from './GameRoom.js';
 import type { GameEngine, GameState, Phase, Action } from './types.js';
 import { ActionLogDAO, GameSnapshotDAO } from '../server/db/index.js';
-import { sendToAgent, broadcastToMatch, setMessageHandler, setForfeitHandler, setReconnectHandler } from '../server/ws/index.js';
+import { sendToAgent, broadcastToMatch, broadcastToSpectators, setMessageHandler, setForfeitHandler, setReconnectHandler, setSpectatorStateProvider } from '../server/ws/index.js';
 import type { WSMessage } from '../server/ws/index.js';
 import type { MahjongState } from '../games/mahjong/types.js';
 import { MahjongActionType } from '../games/mahjong/types.js';
+import { MahjongEngine } from '../games/mahjong/MahjongEngine.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,19 @@ export class GameLoop {
     // Wire up reconnect handler
     setReconnectHandler((agentId: string, matchId: string) => {
       this.handleReconnect(agentId, matchId);
+    });
+
+    // Wire up spectator state provider
+    setSpectatorStateProvider((matchId: string) => {
+      const room = getRoom(matchId);
+      if (!room) return null;
+      const state = room.getState();
+      if (!state) return null;
+      if (room.gameType === 'mahjong') {
+        const engine = room.engine as MahjongEngine;
+        return engine.getSpectatorView(state as MahjongState);
+      }
+      return null;
     });
   }
 
@@ -233,6 +247,18 @@ export class GameLoop {
 
       // Update room state
       room.updateState(currentState);
+
+      // Broadcast updated spectator view
+      if (room.gameType === 'mahjong') {
+        const spectatorView = (room.engine as MahjongEngine).getSpectatorView(currentState as MahjongState);
+        const spectatorMsg: WSMessage = {
+          type: 'spectator_state',
+          match_id: matchId,
+          payload: spectatorView,
+          timestamp: new Date().toISOString(),
+        };
+        broadcastToSpectators(matchId, spectatorMsg);
+      }
 
       // Save snapshot at phase transitions
       const newPhase = engine.getPhase(currentState);
