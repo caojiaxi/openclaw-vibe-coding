@@ -224,10 +224,23 @@ export function ReplayPage(): React.JSX.Element {
   const logEntries = buildLogEntries(state.win_events, state.kong_payments, nameOf);
   const totalFrames = replay.frames.length;
 
+  // Build thinking entries from actions up to current frame (skip auto actions)
+  const thinkingEntries = replay.actions
+    .slice(0, currentFrame)
+    .map((a, i) => ({ ...a, frameIdx: i + 1 }))
+    .filter(a => a.reason && a.reason !== 'auto (single option)')
+    .reverse()
+    .slice(0, 30);
+
+  const ACTION_ZH: Record<string, string> = {
+    declare_lack: '定缺', draw: '摸牌', discard: '打牌',
+    pong: '碰', kong: '杠', hu: '胡', pass: '过',
+  };
+
   return (
-    <div className="relative flex min-h-screen flex-col bg-claw-900">
+    <div className="fixed inset-0 flex flex-col bg-claw-900">
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-claw-700 bg-claw-800/90 px-4 py-2">
+      <div className="flex-none flex items-center justify-between border-b border-claw-700 bg-claw-800/90 px-4 py-2">
         <div className="flex items-center gap-3">
           <Link
             to={matchId ? `/matches/${matchId}` : '/matches'}
@@ -244,40 +257,38 @@ export function ReplayPage(): React.JSX.Element {
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex flex-1 pb-16">
-        {/* Table area */}
-        <div className="flex flex-1 items-center justify-center p-4">
-          <div className="relative flex h-[640px] w-[800px] flex-col items-center justify-between">
-            {/* Top player (seat 2) */}
-            <div className="w-full max-w-xs">
+      {/* Main content — fills between top bar and bottom control bar */}
+      <div className="flex flex-1 min-h-0">
+        {/* Table area — 3x3 grid, 4 players around center */}
+        <div className="flex flex-1 items-center justify-center overflow-hidden p-2">
+          <div className="grid grid-cols-[minmax(200px,1fr)_auto_minmax(200px,1fr)] grid-rows-[auto_1fr_auto] gap-2 max-w-[1100px] max-h-full w-full">
+
+            {/* Row 1 col 1: empty */}
+            <div />
+            {/* Row 1 col 2: Top player (seat 2) */}
+            <div className="flex justify-center">
               {topPlayer && (
-                <PlayerPanel
-                  player={topPlayer}
-                  isActive={state.current_turn === 2}
-                  position="top"
-                  playerName={nameOf(2)}
-                />
+                <div className="w-[360px]">
+                  <PlayerPanel player={topPlayer} isActive={state.current_turn === 2} position="top" playerName={nameOf(2)} />
+                </div>
               )}
             </div>
+            {/* Row 1 col 3: empty */}
+            <div />
 
-            {/* Middle row: left player, table center, right player */}
-            <div className="flex w-full items-center justify-between">
-              {/* Left player (seat 3) */}
-              <div className="w-40">
+            {/* Row 2 col 1: Left player (seat 3) */}
+            <div className="flex items-start justify-end">
+              <div className="w-full max-w-[320px]">
                 {leftPlayer && (
-                  <PlayerPanel
-                    player={leftPlayer}
-                    isActive={state.current_turn === 3}
-                    position="left"
-                    playerName={nameOf(3)}
-                  />
+                  <PlayerPanel player={leftPlayer} isActive={state.current_turn === 3} position="left" playerName={nameOf(3)} />
                 )}
               </div>
+            </div>
 
-              {/* Center table */}
+            {/* Row 2 col 2: Center table */}
+            <div className="flex items-center justify-center">
               <div
-                className="flex h-48 w-64 flex-col items-center justify-center rounded-xl border border-green-900/50 shadow-inner"
+                className="flex h-44 w-60 flex-col items-center justify-center rounded-xl border border-green-900/50 shadow-inner flex-none"
                 style={{ backgroundColor: '#1a472a' }}
               >
                 <PhaseBadge phase={state.phase} />
@@ -286,70 +297,78 @@ export function ReplayPage(): React.JSX.Element {
                     {state.sub_phase.replace('_', ' ')}
                   </span>
                 )}
-                <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-green-200/80">
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-green-200/80">
                   <span>Tiles left</span>
                   <span className="text-right font-mono">{state.tiles_remaining}</span>
                   <span>Turn</span>
                   <span className="text-right font-mono">{state.turn_count}</span>
                 </div>
                 {state.current_discard && (
-                  <div className="mt-3 flex flex-col items-center">
-                    <span className="mb-1 text-[10px] uppercase tracking-wider text-green-300/50">
+                  <div className="mt-2 flex flex-col items-center">
+                    <span className="mb-0.5 text-[10px] uppercase tracking-wider text-green-300/50">
                       Discard
                     </span>
                     <MahjongTile tile={state.current_discard.tile} size="md" highlighted />
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Right player (seat 1) */}
-              <div className="w-40">
+            {/* Row 2 col 3: Right player (seat 1) */}
+            <div className="flex items-start justify-start">
+              <div className="w-full max-w-[320px]">
                 {rightPlayer && (
-                  <PlayerPanel
-                    player={rightPlayer}
-                    isActive={state.current_turn === 1}
-                    position="right"
-                    playerName={nameOf(1)}
-                  />
+                  <PlayerPanel player={rightPlayer} isActive={state.current_turn === 1} position="right" playerName={nameOf(1)} />
                 )}
               </div>
             </div>
 
-            {/* Bottom player (seat 0) */}
-            <div className="w-full max-w-xs">
+            {/* Row 3 col 1: empty */}
+            <div />
+            {/* Row 3 col 2: Bottom player (seat 0) */}
+            <div className="flex justify-center">
               {bottomPlayer && (
-                <PlayerPanel
-                  player={bottomPlayer}
-                  isActive={state.current_turn === 0}
-                  position="bottom"
-                  playerName={nameOf(0)}
-                />
+                <div className="w-[360px]">
+                  <PlayerPanel player={bottomPlayer} isActive={state.current_turn === 0} position="bottom" playerName={nameOf(0)} />
+                </div>
               )}
             </div>
+            {/* Row 3 col 3: empty */}
+            <div />
+
           </div>
         </div>
 
-        {/* Right sidebar – event log */}
-        <div className="flex w-72 flex-col border-l border-claw-700 bg-claw-800/60">
-          <div className="border-b border-claw-700 px-4 py-3">
-            <h2 className="text-sm font-semibold text-gray-200">Event Log</h2>
+        {/* Right sidebar – AI thinking + event log, independent scroll */}
+        <div className="flex w-80 flex-none flex-col border-l border-claw-700 bg-claw-800/60">
+          <div className="flex-none border-b border-claw-700 px-4 py-3">
+            <h2 className="text-sm font-semibold text-gray-200">🤖 AI Thinking</h2>
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-2">
-            {logEntries.length === 0 ? (
-              <p className="py-8 text-center text-xs text-gray-600">No events yet</p>
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+            {thinkingEntries.length === 0 && logEntries.length === 0 ? (
+              <p className="py-8 text-center text-xs text-gray-600">Advance frames to see AI decisions...</p>
             ) : (
               <ul className="space-y-2">
+                {thinkingEntries.map((t, i) => {
+                  const p = replay.participants.find(pp => pp.agent_id === t.agent_id);
+                  const name = p ? p.name : t.agent_id.slice(0, 8);
+                  return (
+                    <li key={`t-${t.frameIdx}-${i}`} className={`rounded-lg border-l-2 px-3 py-2 text-xs leading-relaxed ${t.frameIdx === currentFrame ? 'border-claw-gold bg-claw-gold/10' : 'border-purple-500 bg-purple-500/5'}`}>
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="font-semibold text-purple-300">{name}</span>
+                        <span className="text-gray-500">→</span>
+                        <span className="font-mono text-claw-gold">{ACTION_ZH[t.type] ?? t.type}</span>
+                        <span className="ml-auto text-gray-600">#{t.frameIdx}</span>
+                      </div>
+                      <p className="text-gray-400">{t.reason}</p>
+                    </li>
+                  );
+                })}
                 {logEntries.map((e) => (
-                  <li
-                    key={e.id}
-                    className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
-                      e.type === 'win'
-                        ? 'border-l-2 border-claw-gold bg-claw-gold/5 text-gray-200'
-                        : 'border-l-2 border-blue-500 bg-blue-500/5 text-gray-300'
-                    }`}
-                  >
-                    {e.text}
-                  </li>
+                  <li key={`ev-${e.id}`} className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
+                    e.type === 'win' ? 'border-l-2 border-claw-gold bg-claw-gold/5 text-gray-200'
+                    : 'border-l-2 border-blue-500 bg-blue-500/5 text-gray-300'
+                  }`}>{e.text}</li>
                 ))}
               </ul>
             )}
@@ -357,8 +376,8 @@ export function ReplayPage(): React.JSX.Element {
         </div>
       </div>
 
-      {/* Bottom control bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-between border-t border-claw-700 bg-claw-800 px-4">
+      {/* Bottom control bar — static within flex column, not fixed */}
+      <div className="flex-none flex h-14 items-center justify-between border-t border-claw-700 bg-claw-800 px-4">
         {/* Left: playback buttons */}
         <div className="flex items-center gap-1">
           <button

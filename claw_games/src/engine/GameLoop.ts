@@ -153,6 +153,7 @@ export class GameLoop {
               turn: phase.turn,
               action_type: action.type,
               payload_json: JSON.stringify(action.data),
+              reason: (action as Action & { reason?: string }).reason ?? null,
             });
 
             // Broadcast action result
@@ -399,9 +400,22 @@ export class GameLoop {
   // ── WS Message Handling ──────────────────────────────────────────────
 
   private handleAgentMessage(agentId: string, message: WSMessage): void {
+    // Forward agent_thinking to spectators
+    if (message.type === 'agent_thinking') {
+      const payload = message.payload as { match_id?: string; reason?: string; action?: string; tile?: string };
+      if (payload.match_id) {
+        broadcastToSpectators(payload.match_id, {
+          type: 'agent_thinking',
+          match_id: payload.match_id,
+          payload: { agent_id: agentId, reason: payload.reason, action: payload.action, tile: payload.tile },
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return;
+    }
     if (message.type !== 'action') return;
 
-    const payload = message.payload as { match_id?: string; action_type?: string; data?: unknown };
+    const payload = message.payload as { match_id?: string; action_type?: string; data?: unknown; reason?: string };
     if (!payload.match_id) return;
 
     const key = pendingKey(payload.match_id, agentId);
@@ -426,9 +440,10 @@ export class GameLoop {
     if (!state) return;
 
     const availableActions = room.engine.getAvailableActions(state, agentId);
-    const action: Action = {
+    const action: Action & { reason?: string } = {
       type: payload.action_type ?? '',
       data: payload.data,
+      reason: payload.reason,
     };
 
     // Check if the action type is valid

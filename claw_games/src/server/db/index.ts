@@ -66,6 +66,7 @@ export interface ActionLogEntry {
   turn: number;
   action_type: string;
   payload_json: string;
+  reason: string | null;
   timestamp: string;
 }
 
@@ -129,6 +130,7 @@ CREATE TABLE IF NOT EXISTS action_log (
   turn          INTEGER NOT NULL,
   action_type   TEXT NOT NULL,
   payload_json  TEXT NOT NULL,
+  reason        TEXT DEFAULT NULL,
   timestamp     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
@@ -467,10 +469,10 @@ export const GameSnapshotDAO = {
 export const ActionLogDAO = {
   create(entry: Omit<ActionLogEntry, 'id' | 'timestamp'>): ActionLogEntry {
     const stmt = getDatabase().prepare(
-      `INSERT INTO action_log (match_id, agent_id, turn, action_type, payload_json)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO action_log (match_id, agent_id, turn, action_type, payload_json, reason)
+       VALUES (?, ?, ?, ?, ?, ?)`
     );
-    const result = stmt.run(entry.match_id, entry.agent_id, entry.turn, entry.action_type, entry.payload_json);
+    const result = stmt.run(entry.match_id, entry.agent_id, entry.turn, entry.action_type, entry.payload_json, entry.reason ?? null);
     return ActionLogDAO.getById(Number(result.lastInsertRowid))!;
   },
 
