@@ -10,6 +10,7 @@ import { clearAgentQueueId, markAgentInMatch, isAgentQueued, isAgentInMatch } fr
 import { GameRoom } from '../engine/GameRoom.js';
 import { GameLoop } from '../engine/GameLoop.js';
 import { MahjongEngine } from '../games/mahjong/MahjongEngine.js';
+import { WerewolfEngine } from '../games/werewolf/WerewolfEngine.js';
 import type { Player } from '../engine/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -194,18 +195,20 @@ function processMatchGroup(queue: Queue, group: MatchGroup, gameLoop: GameLoop |
   }
 
   // 5. Create GameRoom and start GameLoop for supported game types
-  if (gameLoop && game_type === 'mahjong') {
+  if (gameLoop && (game_type === 'mahjong' || game_type === 'werewolf')) {
     const enginePlayers: Player[] = players.map(p => ({
       id: p.agent_id,
       seat: p.seat,
     }));
+
+    const engine = game_type === 'werewolf' ? new WerewolfEngine() : new MahjongEngine();
 
     const room = new GameRoom({
       matchId: match.id,
       gameType: game_type,
       seed,
       players: enginePlayers,
-      engine: new MahjongEngine(),
+      engine,
     });
 
     // Mark all players as connected (they were just matched from queue,

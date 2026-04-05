@@ -359,34 +359,37 @@ export class GameLoop {
 
   /** Handle action timeout — auto-pass/auto-discard and track consecutive timeouts */
   private handleTimeout(room: GameRoom, agentId: string): Action | null {
-    const state = room.getState() as MahjongState | null;
+    const state = room.getState();
     if (!state) return null;
 
-    const player = state.players.find(p => p.agent_id === agentId);
-    if (!player) return null;
+    // Track consecutive timeouts for mahjong (has player.consecutive_timeouts)
+    if (room.gameType === 'mahjong') {
+      const mjState = state as MahjongState;
+      const player = mjState.players.find(p => p.agent_id === agentId);
+      if (player) {
+        player.consecutive_timeouts++;
+        console.log(`[GameLoop] Agent ${agentId} timed out (${player.consecutive_timeouts}/${MAX_CONSECUTIVE_TIMEOUTS})`);
 
-    player.consecutive_timeouts++;
-    console.log(`[GameLoop] Agent ${agentId} timed out (${player.consecutive_timeouts}/${MAX_CONSECUTIVE_TIMEOUTS})`);
-
-    // 3 consecutive timeouts → forfeit
-    if (player.consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
-      console.log(`[GameLoop] Agent ${agentId} forfeited due to ${MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts`);
-      player.is_forfeited = true;
-
-      // Notify the agent
-      const forfeitMsg: WSMessage = {
-        type: 'error',
-        match_id: room.matchId,
-        payload: {
-          code: 'FORFEITED',
-          message: `You have been forfeited due to ${MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts`,
-        },
-        timestamp: new Date().toISOString(),
-      };
-      sendToAgent(agentId, forfeitMsg);
+        if (player.consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
+          console.log(`[GameLoop] Agent ${agentId} forfeited due to ${MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts`);
+          player.is_forfeited = true;
+          const forfeitMsg: WSMessage = {
+            type: 'error',
+            match_id: room.matchId,
+            payload: {
+              code: 'FORFEITED',
+              message: `You have been forfeited due to ${MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts`,
+            },
+            timestamp: new Date().toISOString(),
+          };
+          sendToAgent(agentId, forfeitMsg);
+        }
+      }
+    } else {
+      console.log(`[GameLoop] Agent ${agentId} timed out in ${room.gameType}`);
     }
 
-    // Generate timeout action
+    // Generate timeout action via engine
     const engine = room.engine;
     if (engine.getTimeoutAction) {
       return engine.getTimeoutAction(state, agentId);
@@ -396,6 +399,7 @@ export class GameLoop {
     const available = engine.getAvailableActions(state, agentId);
     return available.length > 0 ? available[0] : null;
   }
+
 
   // ── WS Message Handling ──────────────────────────────────────────────
 
@@ -486,14 +490,18 @@ export class GameLoop {
     const room = getRoom(matchId);
     if (!room) return;
 
-    const state = room.getState() as MahjongState | null;
+    const state = room.getState();
     if (!state) return;
 
-    const player = state.players.find(p => p.agent_id === agentId);
-    if (player) {
-      player.is_forfeited = true;
-      console.log(`[GameLoop] Agent ${agentId} forfeited match ${matchId}`);
+    // Mark player as forfeited if the state has a players array with is_forfeited
+    if (room.gameType === 'mahjong') {
+      const mjState = state as MahjongState;
+      const player = mjState.players.find(p => p.agent_id === agentId);
+      if (player) {
+        player.is_forfeited = true;
+      }
     }
+    console.log(`[GameLoop] Agent ${agentId} forfeited match ${matchId}`);
 
     // Resolve any pending action for this agent with a timeout action
     const key = pendingKey(matchId, agentId);
