@@ -540,7 +540,12 @@ export class WerewolfEngine implements GameEngine<WerewolfState, WerewolfAgentVi
       results: state.players.map(p => ({
         agent_id: p.agent_id,
         result: winner !== null && p.faction === winner ? 'win' : 'lose',
-      })),
+        // Werewolf-specific fields (extra, not in base MatchResult interface)
+        seat: p.seat,
+        role: p.role,
+        faction: p.faction,
+        alive: p.alive,
+      } as MatchResult['results'][number])),
     };
   }
 
